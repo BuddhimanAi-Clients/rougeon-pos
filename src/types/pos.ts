@@ -43,6 +43,9 @@ export type Sale = {
   clientSaleId: string | null
   cashierName: string
   subtotal: string
+  merchandiseDiscount?: string
+  membershipDiscountPercent?: string
+  membershipTierSnapshot?: { name?: string } | null
   total: string
   paymentMethod: PaymentMethod
   needsReview: boolean

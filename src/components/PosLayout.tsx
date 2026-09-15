@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Cloud, CloudOff, History, LogOut, Menu, RefreshCw, ShoppingCart, X } from 'lucide-react'
+import { Cake, ChartNoAxesCombined, Cloud, CloudOff, History, LogOut, Menu, RefreshCw, ShoppingCart, Users, X } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { authClient } from '../lib/auth-client'
 import type { UserRole } from '../types/pos'
@@ -23,7 +23,7 @@ function PosLayout() {
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update) }
   }, [])
   const user = session?.user as { name?: string; role?: string } | undefined
-  const links = <><NavLink to="/sale" onClick={() => setMenu(false)}><ShoppingCart /> New sale</NavLink><NavLink to="/history" onClick={() => setMenu(false)}><History /> History</NavLink><NavLink to="/sync" onClick={() => setMenu(false)}><RefreshCw /> Sync status</NavLink></>
+  const links = <><NavLink to="/sale" onClick={() => setMenu(false)}><ShoppingCart /> New sale</NavLink><NavLink to="/dashboard" onClick={() => setMenu(false)}><ChartNoAxesCombined /> Dashboard</NavLink><NavLink to="/customers" onClick={() => setMenu(false)}><Users /> Customers</NavLink><NavLink to="/birthdays" onClick={() => setMenu(false)}><Cake /> Birthdays</NavLink><NavLink to="/history" onClick={() => setMenu(false)}><History /> History</NavLink><NavLink to="/sync" onClick={() => setMenu(false)}><RefreshCw /> Sync status</NavLink></>
   return (
     <div className="pos-shell">
       <header className="pos-topbar"><button className="pos-menu-button" onClick={() => setMenu(true)} aria-label="Open navigation"><Menu /></button><a className="pos-logo" href="/sale">ROGUEON <span>POS</span></a><nav>{links}</nav><div className={`connection-badge ${online ? 'online' : 'offline'}`}>{online ? <Cloud /> : <CloudOff />}{online ? 'Online' : 'Offline'}</div><div className="cashier-chip"><span>{user?.name?.slice(0,1).toUpperCase()}</span><p>{user?.name}<small>{user?.role}</small></p></div><button className="logout-button" type="button" aria-label="Sign out" onClick={() => authClient.signOut().then(() => window.location.replace('/login'))}><LogOut /></button></header>

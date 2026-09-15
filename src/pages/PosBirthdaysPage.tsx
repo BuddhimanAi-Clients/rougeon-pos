@@ -1,0 +1,6 @@
+import { useQuery } from '@tanstack/react-query'
+import { Cake } from 'lucide-react'
+import { apiRequest } from '../lib/api'
+type Customer={id:string;fullName:string;normalizedPhone:string;preferredCalendar:'AD'|'BS';birthDate:string;bsBirthMonth:number|null;bsBirthDay:number|null}
+function birthdayDate(customer:Customer){if(customer.preferredCalendar==='BS'&&customer.bsBirthMonth&&customer.bsBirthDay)return `BS ${String(customer.bsBirthMonth).padStart(2,'0')}/${String(customer.bsBirthDay).padStart(2,'0')}`;return new Intl.DateTimeFormat('en-NP',{month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(customer.birthDate))+' (AD)'}
+export function PosBirthdaysPage(){const birthdays=useQuery({queryKey:['pos-birthdays'],queryFn:()=>apiRequest<{data:Customer[]}>('/api/v1/pos/customers/birthdays?mode=upcoming&limit=100')});return <main className="pos-content-page"><header className="pos-page-head"><div><p>CUSTOMER MOMENTS</p><h1>BIRTHDAYS</h1></div><Cake/></header><section className="pos-customer-list">{birthdays.data?.data.map(c=><article key={c.id}><Cake/><span><strong>{c.fullName}</strong><small>{birthdayDate(c)} birthday · {c.normalizedPhone}</small></span></article>)}{birthdays.data&&!birthdays.data.data.length&&<div className="pos-empty"><Cake/><h2>NO UPCOMING BIRTHDAYS</h2></div>}</section></main>}

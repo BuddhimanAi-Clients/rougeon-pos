@@ -1,0 +1,6 @@
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { Search, Users } from 'lucide-react'
+import { apiRequest } from '../lib/api'
+type Customer={id:string;fullName:string;normalizedPhone:string;normalizedEmail:string;tierName:string|null;discountPercent:string;eligibleNetSpend:string}
+export function PosCustomersPage(){const[search,setSearch]=useState('');const customers=useQuery({queryKey:['pos-directory',search],queryFn:()=>apiRequest<{data:Customer[]}>('/api/v1/pos/customers?limit=50&sort=name_asc'+(search?`&search=${encodeURIComponent(search)}`:''))});return <main className="pos-content-page"><header className="pos-page-head"><div><p>CUSTOMER RELATIONSHIPS</p><h1>CUSTOMERS</h1></div><Users/></header><div className="pos-search"><Search/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, phone, or email"/></div><section className="pos-customer-list">{customers.data?.data.map(c=><article key={c.id}><span><strong>{c.fullName}</strong><small>{c.normalizedPhone} · {c.normalizedEmail}</small></span><em>{c.tierName?`${c.tierName} · ${c.discountPercent}%`:'No active tier'}</em></article>)}{customers.data&&!customers.data.data.length&&<div className="pos-empty"><Users/><h2>NO CUSTOMERS FOUND</h2></div>}</section></main>}
