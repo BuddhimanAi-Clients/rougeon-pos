@@ -16,6 +16,8 @@ export type CatalogProduct = {
   slug: string
   description: string
   images: string[]
+  /** False when an administrator excluded this product from membership discounts. */
+  membershipDiscountEligible?: boolean
   category: { id: string; name: string; slug: string }
   variants: CatalogVariant[]
   minPrice: string | null
@@ -34,6 +36,8 @@ export type SaleItem = {
   variantColor: string
   qty: number
   price: string
+  membershipDiscountEligible?: boolean
+  discountAmount?: string
 }
 
 export type Sale = {
@@ -46,6 +50,10 @@ export type Sale = {
   merchandiseDiscount?: string
   membershipDiscountPercent?: string
   membershipTierSnapshot?: { name?: string } | null
+  membershipDiscountWaived?: boolean
+  membershipDiscountWaivedPercent?: string
+  membershipDiscountWaivedAmount?: string
+  membershipDiscountWaivedReason?: string | null
   total: string
   paymentMethod: PaymentMethod
   needsReview: boolean
@@ -55,15 +63,40 @@ export type Sale = {
 
 export type SaleListItem = Pick<Sale, 'id' | 'saleNumber' | 'subtotal' | 'total' | 'paymentMethod' | 'needsReview' | 'createdAt'>
 
+export type ReceiptItem = {
+  name: string
+  productName?: string
+  size?: string
+  color?: string
+  sku: string
+  qty: number
+  price: string
+  lineTotal: string
+  membershipDiscountEligible?: boolean
+  discountAmount?: string
+}
+
 export type Receipt = {
   saleNumber: string
   cashierName: string
   createdAt: string
-  items: { name: string; sku: string; qty: number; price: string; lineTotal: string }[]
+  items: ReceiptItem[]
+  itemCount?: number
   subtotal: string
+  discount?: { amount: string; percent: string; tierName: string | null; waived: boolean }
   total: string
   paymentMethod: PaymentMethod
-  storeInfo: { name: string; address: string }
+  customer?: { name: string; phone: string | null } | null
+  storeInfo: { name: string; address: string; phone?: string; pan?: string }
+  footerNote?: string | null
+}
+
+export type PaymentQr = {
+  id: string
+  qrImageUrl: string
+  providerName: string | null
+  accountName: string | null
+  accountIdentifier: string | null
 }
 
 export type QueuePreviewItem = SaleItemInput & {

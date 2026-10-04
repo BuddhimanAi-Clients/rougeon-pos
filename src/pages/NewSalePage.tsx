@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Banknote, Check, Minus, PackageSearch, Plus, QrCode, Search, ShoppingCart, Trash2, WifiOff, X } from 'lucide-react'
+import { Banknote, Check, ImageOff, Minus, PackageSearch, Plus, QrCode, Search, ShoppingCart, Trash2, WifiOff, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiRequest } from '../lib/api'
 import { readCatalog, saveCatalog } from '../lib/offline-db'
-import type { CatalogProduct, CatalogVariant, PaymentMethod, Sale } from '../types/pos'
+import type { CatalogProduct, CatalogVariant, PaymentMethod, PaymentQr, Sale } from '../types/pos'
 
 type ProductResponse = { data: CatalogProduct[]; pagination: { total: number } }
 type Line = { product: CatalogProduct; variant: CatalogVariant; qty: number }
@@ -31,6 +31,16 @@ export function NewSalePage() {
   const [customerSearch, setCustomerSearch] = useState('')
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [newCustomer, setNewCustomer] = useState(false)
+  // A cashier may withhold a discount the customer qualifies for; the server
+  // records who did it and why. It can never be used to add a discount.
+  const [applyDiscount, setApplyDiscount] = useState(true)
+  const [waiverReason, setWaiverReason] = useState('')
+
+  function selectCustomer(next: Customer | null) {
+    setCustomer(next)
+    setApplyDiscount(true)
+    setWaiverReason('')
+  }
 
   const customers = useQuery({
     queryKey: ['pos-customers', customerSearch],
@@ -53,9 +63,22 @@ export function NewSalePage() {
   })
   const variants = useMemo(() => products.data?.flatMap(product => product.variants.map(variant => ({ product, variant }))) ?? [], [products.data])
   const subtotal = lines.reduce((sum, line) => sum + Number(line.variant.price) * line.qty, 0)
-  const discountPercent = customer ? Number(customer.discountPercent ?? 0) : 0
-  const discountAmount = subtotal * discountPercent / 100
+  // Products an administrator excluded from membership discounts stay at full price.
+  const eligibleSubtotal = lines.reduce((sum, line) => line.product.membershipDiscountEligible === false ? sum : sum + Number(line.variant.price) * line.qty, 0)
+  const memberPercent = customer ? Number(customer.discountPercent ?? 0) : 0
+  const entitledDiscount = Math.round(eligibleSubtotal * memberPercent) / 100
+  const discountWithheld = entitledDiscount > 0 && !applyDiscount
+  const discountPercent = discountWithheld ? 0 : memberPercent
+  const discountAmount = discountWithheld ? 0 : entitledDiscount
   const estimatedTotal = subtotal - discountAmount
+  const reasonMissing = discountWithheld && waiverReason.trim().length < 3
+  const paymentQr = useQuery({
+    queryKey: ['pos-payment-qr'],
+    enabled: paymentMethod === 'qr',
+    staleTime: 60_000,
+    retry: false,
+    queryFn: async () => (await apiRequest<{ data: PaymentQr }>('/api/v1/pos/payment-qr')).data,
+  })
 
   function add(product: CatalogProduct, variant: CatalogVariant) {
     const available = variant.stockQty ?? 0
@@ -82,15 +105,20 @@ export function NewSalePage() {
       if (!customer) throw new Error('Select a customer before completing this sale.')
       return (await apiRequest<{ data: Sale }>('/api/v1/pos/sales', {
         method: 'POST',
-        body: JSON.stringify({ customerProfileId: customer.id, paymentMethod, items: lines.map(line => ({ variantId: line.variant.id, qty: line.qty })) }),
+        body: JSON.stringify({
+          customerProfileId: customer.id,
+          paymentMethod,
+          items: lines.map(line => ({ variantId: line.variant.id, qty: line.qty })),
+          ...(discountWithheld ? { applyMembershipDiscount: false, discountWaiverReason: waiverReason.trim() } : {}),
+        }),
       })).data
     },
-    onSuccess: sale => { setLines([]); navigate('/success', { state: { kind: 'synced', sale } }) },
+    onSuccess: sale => { setLines([]); selectCustomer(null); navigate('/success', { state: { kind: 'synced', sale } }) },
     onError: (error: Error) => toast.error(error.message),
   })
   const create = useMutation({
     mutationFn: (body: unknown) => apiRequest<{ data: Customer }>('/api/v1/pos/customers', { method: 'POST', body: JSON.stringify(body) }),
-    onSuccess: ({ data }) => { setCustomer(data); setNewCustomer(false); toast.success('Customer created and selected') },
+    onSuccess: ({ data }) => { selectCustomer(data); setNewCustomer(false); toast.success('Customer created and selected') },
     onError: (error: Error) => toast.error(error.message),
   })
 
@@ -124,24 +152,52 @@ export function NewSalePage() {
       <header><div><ShoppingCart /><span>CURRENT TICKET</span></div><strong>{String(lines.reduce((count, line) => count + line.qty, 0)).padStart(2, '0')}</strong></header>
       <div className="payment-methods customer-picker">
         <p>CUSTOMER / MEMBERSHIP <button type="button" onClick={() => setNewCustomer(true)}><Plus /> New</button></p>
-        {customer ? <><p><strong>{customer.fullName}</strong> · {customer.normalizedPhone}<button onClick={() => setCustomer(null)}>Change</button></p>
-          <div className="membership-ticket-summary"><span>{customer.tierName ?? 'No active tier'}</span><strong>{discountPercent > 0 ? `${discountPercent}% member price` : 'Standard price'}</strong>{customer.eligibleNetSpend !== undefined && <small>Eligible spend: {money.format(Number(customer.eligibleNetSpend))}</small>}</div>
-        </> : <><input value={customerSearch} onChange={event => setCustomerSearch(event.target.value)} placeholder="Search phone, email, or name" />{customers.data?.map(result => <button key={result.id} onClick={() => { setCustomer(result); setCustomerSearch('') }}>{result.fullName} · {result.normalizedPhone}</button>)}</>}
+        {customer ? <><p><strong>{customer.fullName}</strong> · {customer.normalizedPhone}<button onClick={() => selectCustomer(null)}>Change</button></p>
+          <div className="membership-ticket-summary"><span>{customer.tierName ?? 'No active tier'}</span><strong>{memberPercent > 0 ? `${memberPercent}% member price` : 'Standard price'}</strong>{customer.eligibleNetSpend !== undefined && <small>Eligible spend: {money.format(Number(customer.eligibleNetSpend))}</small>}</div>
+          {memberPercent > 0 && <div className={`discount-control ${applyDiscount ? '' : 'withheld'}`}>
+            <label><input type="checkbox" checked={applyDiscount} onChange={event => setApplyDiscount(event.target.checked)} /><span>Apply member discount</span></label>
+            {!applyDiscount && <>
+              <input value={waiverReason} maxLength={300} onChange={event => setWaiverReason(event.target.value)} placeholder="Reason for removing the discount (required)" aria-label="Reason for removing the member discount" />
+              <small>This sale will be logged under your name with this reason.</small>
+            </>}
+          </div>}
+        </> : <><input value={customerSearch} onChange={event => setCustomerSearch(event.target.value)} placeholder="Search phone, email, or name" />{customers.data?.map(result => <button key={result.id} onClick={() => { selectCustomer(result); setCustomerSearch('') }}>{result.fullName} · {result.normalizedPhone}</button>)}</>}
       </div>
       <div className="ticket-lines">{lines.length ? lines.map(line => <article key={line.variant.id}>
-        <div><p>{line.variant.sku}</p><h3>{line.product.name}</h3><span>{line.variant.size} / {line.variant.color}</span></div>
+        <div><p>{line.variant.sku}</p><h3>{line.product.name}</h3><span>{line.variant.size} / {line.variant.color}</span>{line.product.membershipDiscountEligible === false && <em className="no-discount-tag">No member discount</em>}</div>
         <strong>{money.format(Number(line.variant.price) * line.qty)}</strong>
         <div className="ticket-quantity"><button onClick={() => quantity(line.variant.id, line.qty - 1)}><Minus /></button><span>{line.qty}</span><button onClick={() => quantity(line.variant.id, line.qty + 1)}><Plus /></button></div>
         <button className="ticket-remove" onClick={() => quantity(line.variant.id, 0)}><Trash2 /></button>
       </article>) : <div className="empty-ticket"><ShoppingCart /><p>Add a variant to begin.</p></div>}</div>
       <div className="till-bottom">
         <div className="payment-methods"><p>PAYMENT METHOD</p><button className={paymentMethod === 'cash' ? 'selected' : ''} onClick={() => setPaymentMethod('cash')}><Banknote />Cash</button><button className={paymentMethod === 'qr' ? 'selected' : ''} onClick={() => setPaymentMethod('qr')}><QrCode />QR</button></div>
-        <div className="till-total"><span>Merchandise subtotal</span><strong>{money.format(subtotal)}</strong>{discountPercent > 0 && <><span>Member discount · {discountPercent}%</span><strong>−{money.format(discountAmount)}</strong></>}<span>Estimated total</span><strong>{money.format(estimatedTotal)}</strong></div>
+        <div className="till-total"><span>Merchandise subtotal</span><strong>{money.format(subtotal)}</strong>{discountAmount > 0 && <><span>Member discount · {discountPercent}%</span><strong>−{money.format(discountAmount)}</strong></>}{discountWithheld && <><span>Member discount removed</span><strong>{money.format(0)}</strong></>}<span>Estimated total</span><strong>{money.format(estimatedTotal)}</strong></div>
         {!navigator.onLine && <div className="offline-notice"><WifiOff /> Reconnect to complete this membership sale.</div>}
-        <button className="complete-sale-button" disabled={!lines.length || !customer || complete.isPending || !navigator.onLine} onClick={() => { if (!customer) toast.error('Select a customer first'); else setConfirming(true) }}>{complete.isPending ? 'Processing…' : 'Complete sale'}<span>→</span></button>
+        <button className="complete-sale-button" disabled={!lines.length || !customer || complete.isPending || !navigator.onLine} onClick={() => { if (!customer) toast.error('Select a customer first'); else if (reasonMissing) toast.error('Enter a reason for removing the member discount'); else setConfirming(true) }}>{complete.isPending ? 'Processing…' : 'Complete sale'}<span>→</span></button>
         <small>Membership totals are estimated here and rechecked by the server at payment.</small>
       </div>
     </aside></main>
-    {confirming && <div className="sale-confirm-backdrop" role="dialog" aria-modal="true"><section className="sale-confirm"><button className="sale-confirm-close" onClick={() => setConfirming(false)}><X /></button><p>CONFIRM TRANSACTION</p><h2>COMPLETE SALE?</h2><span>{lines.reduce((count, line) => count + line.qty, 0)} items · {paymentMethod.toUpperCase()}</span><strong>{money.format(estimatedTotal)}</strong><div><button className="pos-secondary-button" onClick={() => setConfirming(false)}>Review ticket</button><button className="pos-primary-button" onClick={() => { setConfirming(false); complete.mutate() }}><Check />Confirm sale</button></div></section></div>}
+    {confirming && <div className="sale-confirm-backdrop" role="dialog" aria-modal="true">
+      <section className={`sale-confirm ${paymentMethod === 'qr' ? 'with-qr' : ''}`}>
+        <button className="sale-confirm-close" onClick={() => setConfirming(false)}><X /></button>
+        <p>{paymentMethod === 'qr' ? 'QR PAYMENT' : 'CONFIRM TRANSACTION'}</p>
+        <h2>{paymentMethod === 'qr' ? 'SCAN TO PAY' : 'COMPLETE SALE?'}</h2>
+        {paymentMethod === 'qr' && <div className="sale-qr">
+          {paymentQr.isPending ? <div className="sale-qr-state">Loading payment QR…</div>
+            : paymentQr.data ? <>
+              <img src={paymentQr.data.qrImageUrl} alt={`Payment QR${paymentQr.data.providerName ? ` for ${paymentQr.data.providerName}` : ''}`} />
+              {(paymentQr.data.providerName || paymentQr.data.accountName) && <small>{[paymentQr.data.providerName, paymentQr.data.accountName].filter(Boolean).join(' · ')}</small>}
+            </>
+            : <div className="sale-qr-state"><ImageOff /><span>No payment QR is set up. Ask an admin to upload one under Payment QR, or use the counter QR.</span><button type="button" onClick={() => paymentQr.refetch()}>Try again</button></div>}
+        </div>}
+        <span>{lines.reduce((count, line) => count + line.qty, 0)} items · {paymentMethod.toUpperCase()}{discountWithheld ? ' · member discount removed' : ''}</span>
+        <strong>{money.format(estimatedTotal)}</strong>
+        {paymentMethod === 'qr' && <em className="sale-qr-hint">Confirm only after the customer shows the successful payment.</em>}
+        <div>
+          <button className="pos-secondary-button" onClick={() => setConfirming(false)}>Review ticket</button>
+          <button className="pos-primary-button" onClick={() => { setConfirming(false); complete.mutate() }}><Check />{paymentMethod === 'qr' ? 'Payment received' : 'Confirm sale'}</button>
+        </div>
+      </section>
+    </div>}
   </>
 }
