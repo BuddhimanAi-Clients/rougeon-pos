@@ -64,3 +64,13 @@
   .thermal-receipt.paper-80{width:80mm!important}
   .thermal-receipt.paper-58{width:58mm!important}
 }
+
+/* Phones: the top bar always fits; the connection state shows as its icon. */
+@media(max-width:780px){
+.pos-topbar{gap:8px}
+.pos-logo{font-size:20px;min-width:0}
+.connection-badge{padding:9px;gap:0;font-size:0}
+.logout-button{flex:none}
+.pos-range{flex-wrap:wrap;overflow:visible}
+.pos-range input{flex:1 1 130px;min-width:0}
+}
