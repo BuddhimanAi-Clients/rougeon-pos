@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Banknote, Check, ImageOff, Minus, PackageSearch, Plus, QrCode, Search, ShoppingCart, Trash2, WifiOff, X } from 'lucide-react'
+import { Banknote, Check, ImageOff, Split, Minus, PackageSearch, Plus, QrCode, Search, ShoppingCart, Trash2, WifiOff, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiRequest } from '../lib/api'
@@ -27,6 +27,8 @@ export function NewSalePage() {
   const [search, setSearch] = useState('')
   const [lines, setLines] = useState<Line[]>([])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash')
+  // Split payment: the cashier types the QR part; cash is always the rest.
+  const [splitQrInput, setSplitQrInput] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [customerSearch, setCustomerSearch] = useState('')
   const [customer, setCustomer] = useState<Customer | null>(null)
@@ -71,10 +73,15 @@ export function NewSalePage() {
   const discountPercent = discountWithheld ? 0 : memberPercent
   const discountAmount = discountWithheld ? 0 : entitledDiscount
   const estimatedTotal = subtotal - discountAmount
+  const isSplit = paymentMethod === 'split'
+  const usesQr = paymentMethod === 'qr' || isSplit
+  const splitQr = Math.round((Number(splitQrInput) || 0) * 100) / 100
+  const splitCash = Math.round((estimatedTotal - splitQr) * 100) / 100
+  const splitValid = splitQr > 0 && splitCash > 0
   const reasonMissing = discountWithheld && waiverReason.trim().length < 3
   const paymentQr = useQuery({
     queryKey: ['pos-payment-qr'],
-    enabled: paymentMethod === 'qr',
+    enabled: usesQr,
     staleTime: 60_000,
     retry: false,
     queryFn: async () => (await apiRequest<{ data: PaymentQr }>('/api/v1/pos/payment-qr')).data,
@@ -108,12 +115,13 @@ export function NewSalePage() {
         body: JSON.stringify({
           customerProfileId: customer.id,
           paymentMethod,
+          ...(isSplit ? { split: { cashAmount: splitCash.toFixed(2), qrAmount: splitQr.toFixed(2) } } : {}),
           items: lines.map(line => ({ variantId: line.variant.id, qty: line.qty })),
           ...(discountWithheld ? { applyMembershipDiscount: false, discountWaiverReason: waiverReason.trim() } : {}),
         }),
       })).data
     },
-    onSuccess: sale => { setLines([]); selectCustomer(null); navigate('/success', { state: { kind: 'synced', sale } }) },
+    onSuccess: sale => { setLines([]); setSplitQrInput(''); setPaymentMethod('cash'); selectCustomer(null); navigate('/success', { state: { kind: 'synced', sale } }) },
     onError: (error: Error) => toast.error(error.message),
   })
   const create = useMutation({
@@ -170,19 +178,20 @@ export function NewSalePage() {
         <button className="ticket-remove" onClick={() => quantity(line.variant.id, 0)}><Trash2 /></button>
       </article>) : <div className="empty-ticket"><ShoppingCart /><p>Add a variant to begin.</p></div>}</div>
       <div className="till-bottom">
-        <div className="payment-methods"><p>PAYMENT METHOD</p><button className={paymentMethod === 'cash' ? 'selected' : ''} onClick={() => setPaymentMethod('cash')}><Banknote />Cash</button><button className={paymentMethod === 'qr' ? 'selected' : ''} onClick={() => setPaymentMethod('qr')}><QrCode />QR</button></div>
+        <div className="payment-methods"><p>PAYMENT METHOD</p><button className={paymentMethod === 'cash' ? 'selected' : ''} onClick={() => setPaymentMethod('cash')}><Banknote />Cash</button><button className={paymentMethod === 'qr' ? 'selected' : ''} onClick={() => setPaymentMethod('qr')}><QrCode />QR</button><button className={isSplit ? 'selected' : ''} onClick={() => setPaymentMethod('split')}><Split />Split</button></div>
+        {isSplit && <div className="split-amounts"><label><span>QR amount</span><input inputMode="decimal" placeholder="0" value={splitQrInput} onChange={event => setSplitQrInput(event.target.value.replace(/[^0-9.]/g, ''))} /></label><label><span>Cash amount</span><input inputMode="decimal" placeholder="0" value={splitQr > 0 && splitCash >= 0 ? String(splitCash) : ''} onChange={event => { const cash = Number(event.target.value.replace(/[^0-9.]/g, '')) || 0; setSplitQrInput(cash > 0 && cash < estimatedTotal ? String(Math.round((estimatedTotal - cash) * 100) / 100) : '') }} /></label><small className={splitQrInput && !splitValid ? 'invalid' : ''}>{!lines.length ? 'Add items first, then enter one amount; the other fills in.' : splitValid ? `QR ${money.format(splitQr)} + cash ${money.format(splitCash)} = ${money.format(estimatedTotal)}` : splitQrInput ? `Each part must be more than zero and together equal ${money.format(estimatedTotal)}.` : 'Enter one amount; the other fills in.'}</small></div>}
         <div className="till-total"><span>Merchandise subtotal</span><strong>{money.format(subtotal)}</strong>{discountAmount > 0 && <><span>Member discount · {discountPercent}%</span><strong>−{money.format(discountAmount)}</strong></>}{discountWithheld && <><span>Member discount removed</span><strong>{money.format(0)}</strong></>}<span>Estimated total</span><strong>{money.format(estimatedTotal)}</strong></div>
         {!navigator.onLine && <div className="offline-notice"><WifiOff /> Reconnect to complete this membership sale.</div>}
-        <button className="complete-sale-button" disabled={!lines.length || !customer || complete.isPending || !navigator.onLine} onClick={() => { if (!customer) toast.error('Select a customer first'); else if (reasonMissing) toast.error('Enter a reason for removing the member discount'); else setConfirming(true) }}>{complete.isPending ? 'Processing…' : 'Complete sale'}<span>→</span></button>
+        <button className="complete-sale-button" disabled={!lines.length || !customer || complete.isPending || !navigator.onLine} onClick={() => { if (!customer) toast.error('Select a customer first'); else if (reasonMissing) toast.error('Enter a reason for removing the member discount'); else if (isSplit && !splitValid) toast.error('Enter how much is paid by QR and how much in cash'); else setConfirming(true) }}>{complete.isPending ? 'Processing…' : 'Complete sale'}<span>→</span></button>
         <small>Membership totals are estimated here and rechecked by the server at payment.</small>
       </div>
     </aside></main>
     {confirming && <div className="sale-confirm-backdrop" role="dialog" aria-modal="true">
-      <section className={`sale-confirm ${paymentMethod === 'qr' ? 'with-qr' : ''}`}>
+      <section className={`sale-confirm ${usesQr ? 'with-qr' : ''}`}>
         <button className="sale-confirm-close" onClick={() => setConfirming(false)}><X /></button>
-        <p>{paymentMethod === 'qr' ? 'QR PAYMENT' : 'CONFIRM TRANSACTION'}</p>
-        <h2>{paymentMethod === 'qr' ? 'SCAN TO PAY' : 'COMPLETE SALE?'}</h2>
-        {paymentMethod === 'qr' && <div className="sale-qr">
+        <p>{isSplit ? 'SPLIT PAYMENT' : paymentMethod === 'qr' ? 'QR PAYMENT' : 'CONFIRM TRANSACTION'}</p>
+        <h2>{isSplit ? `SCAN ${money.format(splitQr)}` : paymentMethod === 'qr' ? 'SCAN TO PAY' : 'COMPLETE SALE?'}</h2>
+        {usesQr && <div className="sale-qr">
           {paymentQr.isPending ? <div className="sale-qr-state">Loading payment QR…</div>
             : paymentQr.data ? <>
               <img src={paymentQr.data.qrImageUrl} alt={`Payment QR${paymentQr.data.providerName ? ` for ${paymentQr.data.providerName}` : ''}`} />
@@ -192,10 +201,11 @@ export function NewSalePage() {
         </div>}
         <span>{lines.reduce((count, line) => count + line.qty, 0)} items · {paymentMethod.toUpperCase()}{discountWithheld ? ' · member discount removed' : ''}</span>
         <strong>{money.format(estimatedTotal)}</strong>
-        {paymentMethod === 'qr' && <em className="sale-qr-hint">Confirm only after the customer shows the successful payment.</em>}
+        {isSplit && <dl className="sale-split"><dt>Collect by QR</dt><dd>{money.format(splitQr)}</dd><dt>Collect in cash</dt><dd>{money.format(splitCash)}</dd></dl>}
+        {usesQr && <em className="sale-qr-hint">{isSplit ? 'Confirm only after the QR payment shows as successful and the cash is in hand.' : 'Confirm only after the customer shows the successful payment.'}</em>}
         <div>
           <button className="pos-secondary-button" onClick={() => setConfirming(false)}>Review ticket</button>
-          <button className="pos-primary-button" onClick={() => { setConfirming(false); complete.mutate() }}><Check />{paymentMethod === 'qr' ? 'Payment received' : 'Confirm sale'}</button>
+          <button className="pos-primary-button" onClick={() => { setConfirming(false); complete.mutate() }}><Check />{isSplit ? 'Both received' : paymentMethod === 'qr' ? 'Payment received' : 'Confirm sale'}</button>
         </div>
       </section>
     </div>}
