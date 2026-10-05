@@ -113,7 +113,9 @@ export function ReceiptPage() {
           <div><dt>Subtotal</dt><dd>{amount(data.subtotal)}</dd></div>
           {discount > 0 && <div><dt>Member discount{data.discount?.tierName ? ` (${data.discount.tierName} ${Number(data.discount.percent)}%)` : ''}</dt><dd>-{amount(discount)}</dd></div>}
           <div className="thermal-grand"><dt>TOTAL NPR</dt><dd>{amount(data.total)}</dd></div>
-          <div><dt>Paid by</dt><dd>{data.paymentMethod === 'qr' ? 'QR' : 'CASH'}</dd></div>
+          {data.paymentMethod === 'split'
+            ? <><div><dt>Paid by QR</dt><dd>{amount(data.qrAmount ?? 0)}</dd></div><div><dt>Paid by cash</dt><dd>{amount(data.cashAmount ?? 0)}</dd></div></>
+            : <div><dt>Paid by</dt><dd>{data.paymentMethod === 'qr' ? 'QR' : 'CASH'}</dd></div>}
           <div><dt>Items</dt><dd>{itemCount}</dd></div>
         </dl>
 

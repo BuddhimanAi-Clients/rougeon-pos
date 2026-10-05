@@ -25,7 +25,7 @@ export type CatalogProduct = {
 }
 
 export type SaleItemInput = { variantId: string; qty: number }
-export type PaymentMethod = 'cash' | 'qr'
+export type PaymentMethod = 'cash' | 'qr' | 'split'
 
 export type SaleItem = {
   id: string
@@ -56,12 +56,15 @@ export type Sale = {
   membershipDiscountWaivedReason?: string | null
   total: string
   paymentMethod: PaymentMethod
+  /** How the total was paid; a split sale has part in each. */
+  cashAmount?: string
+  qrAmount?: string
   needsReview: boolean
   createdAt: string
   items: SaleItem[]
 }
 
-export type SaleListItem = Pick<Sale, 'id' | 'saleNumber' | 'subtotal' | 'total' | 'paymentMethod' | 'needsReview' | 'createdAt'>
+export type SaleListItem = Pick<Sale, 'id' | 'saleNumber' | 'subtotal' | 'total' | 'paymentMethod' | 'cashAmount' | 'qrAmount' | 'needsReview' | 'createdAt'>
 
 export type ReceiptItem = {
   name: string
@@ -86,6 +89,8 @@ export type Receipt = {
   discount?: { amount: string; percent: string; tierName: string | null; waived: boolean }
   total: string
   paymentMethod: PaymentMethod
+  cashAmount?: string
+  qrAmount?: string
   customer?: { name: string; phone: string | null } | null
   storeInfo: { name: string; address: string; phone?: string; pan?: string }
   footerNote?: string | null
