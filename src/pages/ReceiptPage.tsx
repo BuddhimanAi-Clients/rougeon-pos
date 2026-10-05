@@ -77,6 +77,7 @@ export function ReceiptPage() {
 
       <article ref={paperRef} className={`thermal-receipt paper-${paper}`}>
         <header>
+          <img className="receipt-logo" src="/brand/star.png" alt="" />
           <h1>{data.storeInfo.name}</h1>
           <p>{data.storeInfo.address}</p>
           {data.storeInfo.phone && <p>Tel: {data.storeInfo.phone}</p>}
